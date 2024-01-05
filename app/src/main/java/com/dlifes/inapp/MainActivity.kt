@@ -1,5 +1,6 @@
 package com.dlifes.inapp
 
+import android.annotation.SuppressLint
 import android.content.Intent
 import android.os.Bundle
 import android.widget.Toast
@@ -11,6 +12,8 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.lifecycleScope
+import com.dlifes.inapp.repository.InAppReviewManager
+import com.dlifes.inapp.repository.InAppUpdateManager
 import com.dlifes.inapp.ui.theme.InAppTheme
 import com.google.android.play.core.appupdate.AppUpdateManager
 import com.google.android.play.core.appupdate.AppUpdateManagerFactory
@@ -27,16 +30,11 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
-    private  lateinit var  appUpdateManager :AppUpdateManager
-    private val updateType = AppUpdateType.IMMEDIATE
+    @SuppressLint("CoroutineCreationDuringComposition")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        appUpdateManager = AppUpdateManagerFactory.create(this)
-        if(updateType == AppUpdateType.FLEXIBLE){
-            appUpdateManager.registerListener(installStateUpdateListener)
-        }
-        checkForUpdate()
-        showFeedbackDialog()
+        InAppUpdateManager.initialize(this)
+        InAppReviewManager.initialize(getSharedPreferences("app_prefs", MODE_PRIVATE))
         setContent {
             InAppTheme {
                 // A surface container using the 'background' color from the theme
@@ -44,71 +42,37 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    Text(text = "Hello Updated app hebby update")
+                    lifecycleScope.launch {
+                        InAppUpdateManager.checkForUpdates()
+
+                    }
+
+                    Text(text = "Hello App")
                 }
-            }
-        }
-    }
-
-    private  val installStateUpdateListener = InstallStateUpdatedListener{
-        state->
-        if(state.installStatus() == InstallStatus.DOWNLOADED){
-            Toast.makeText(applicationContext,"Restarting in 2 seconds...",Toast.LENGTH_LONG).show()
-            lifecycleScope.launch {
-                delay(2000)
-                appUpdateManager.completeUpdate()
-            }
-        }
-    }
-
-    private fun checkForUpdate(){
-        appUpdateManager.appUpdateInfo.addOnSuccessListener { info->
-            val isUpdateAvailable = info.updateAvailability()==UpdateAvailability.UPDATE_AVAILABLE
-            val isUpdateAllowed = when(updateType){
-                AppUpdateType.FLEXIBLE->info.isFlexibleUpdateAllowed
-                AppUpdateType.IMMEDIATE->info.isImmediateUpdateAllowed
-                else->false
-            }
-            if(isUpdateAvailable && isUpdateAllowed){
-                appUpdateManager.startUpdateFlowForResult(info,updateType,this,123)
-            }
-        }
-    }
-
-    private  fun showFeedbackDialog(){
-        val reviewManager = ReviewManagerFactory.create(applicationContext)
-        reviewManager.requestReviewFlow().addOnCompleteListener {
-            if(it.isSuccessful){
-                reviewManager.launchReviewFlow(this,it.result)
             }
         }
     }
 
     override fun onResume() {
         super.onResume()
-        if(updateType == AppUpdateType.IMMEDIATE){
-            appUpdateManager.appUpdateInfo.addOnSuccessListener { info->
-                if(info.updateAvailability() == UpdateAvailability.DEVELOPER_TRIGGERED_UPDATE_IN_PROGRESS){
-                    appUpdateManager.startUpdateFlowForResult(info,updateType,this,123)
-                }
+        InAppUpdateManager?.checkInstallStatus()
+    }
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == 123) { // The request code used for in-app updates
+            if (resultCode == RESULT_OK) {
+                // Update was successful
+                Toast.makeText(this, "App updated successfully!", Toast.LENGTH_SHORT).show()
+            } else {
+                // Handle update failure
+                Toast.makeText(this, "App updated Failed. Please Use Playstore to update your app", Toast.LENGTH_SHORT).show()
             }
         }
     }
 
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-        if(requestCode == 123){
-            if(resultCode != RESULT_OK){
-                Toast.makeText(this,"Something wrong",Toast.LENGTH_LONG).show()
-            }
-        }
-    }
 
     override fun onDestroy() {
         super.onDestroy()
-        if(updateType == AppUpdateType.FLEXIBLE){
-            appUpdateManager.unregisterListener(installStateUpdateListener)
-        }
     }
 
 }
